@@ -1,0 +1,78 @@
+#!/bin/bash
+#
+# docs for this are located within anonymize-db.py
+#
+
+source /app/bin/include-pdb.sh
+
+init_backup
+
+SRC=$1
+DST=$2
+
+# include argparse for things like --no-restart and stuff
+if [ -z "$SRC" -o -z "$DST" ]; then
+    abort "Syntax: $0 {source-env} {dest-env or - for no restore}"
+fi
+
+if [ "$DST" = "-" ]; then
+    ANON=$SRC
+else
+    # verify if somebody really wants the destination to be production
+    prod_dst_okay "$DST"
+fi
+
+# using our local environ
+set_local_db_config() {
+    export POSTGRES_USER=pgadm # what we are using in prod
+    export POSTGRES_PASSWORD=postgres
+    export DATABASE_USERNAME=$POSTGRES_USER
+    export DATABASE_HOST=localhost
+    export DATABASE_PASSWORD=$POSTGRES_PASSWORD
+    export ANONDB=$(echo $ANON|sed -e s/-/_/g)
+}
+
+# label for the file locally, setup cleanup
+label=${SRC}-${DST}
+FILE=$DUMPDIR/$label-$TIMESTAMP
+clean_onexit $label
+
+# Startup postgres inside our container, in the background
+# we will use this later, and it takes a moment to come online
+set_local_db_config
+msg "Starting postgres in background (/root/pgstart.log)..."
+/usr/local/bin/docker-entrypoint.sh postgres > /root/pgstart.log 2>&1 &
+
+# then run backup to local file
+backup $SRC $FILE-dump1.sql
+
+# local config was reset by `backup` so bring it back
+set_local_db_config
+msg "Importing to internal temporary db $DATABASE_HOST/$ANONDB..."
+
+# get back the local db config, as the backup above changed it
+export DATABASE_NAME=template1
+
+# this makes me pucker
+do_sqlc "drop database if exists $ANONDB;" || abort
+do_sqlc "create database $ANONDB;" || abort
+export DATABASE_NAME=$ANONDB
+do_sql "create extension citext;" || abort
+
+do_cmd pg_restore -n public --clean --if-exists -1 -d $DATABASE_NAME -U $DATABASE_USERNAME -h $DATABASE_HOST $FILE-dump1.sql || abort "unable to restore"
+
+msg "Starting Anonymizer..."
+python3 /app/bin/anonymize-db.py || abort
+
+# save space, drop old dump before new dump
+rm -f $FILE-dump1.sql
+_backup "internal temporary $ANONDB" $DUMPDIR/$SRC-anon.sql || abort
+
+if [ "$DST" != "-" ]; then
+    restore $DST $FILE-anon.sql || abort
+    cleanup $FILE
+else
+    echo "Anonymized dump is $SRC-anon.sql"
+fi
+
+
