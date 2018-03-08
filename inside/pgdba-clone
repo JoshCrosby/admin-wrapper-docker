@@ -1,0 +1,29 @@
+#!/bin/bash
+
+source /app/bin/include-pdb.sh
+
+init_backup
+
+SRC=$1
+DST=$2
+# include argparse for things like --no-restart and stuff
+if [ -z "$SRC" -o -z "$DST" ]; then
+    abort "Syntax: $0 {source-env} {dest-env}"
+fi
+
+prod_dst_okay "$DST"
+
+# stop the destination application
+hook=$(engine svc get $DST deploy-hook --format=txt 2>/dev/null)
+call_svc_hook "$DST" "$hook" stop Stopping
+
+label=${SRC}-2-${DST}
+FILE=$DUMPDIR/$label-$TIMESTAMP.sql
+clean_onexit $label
+
+backup  $SRC $FILE # prd
+restore $DST $FILE # stg
+cleanup $FILE
+
+call_svc_hook "$DST" "$hook" start Resuming
+

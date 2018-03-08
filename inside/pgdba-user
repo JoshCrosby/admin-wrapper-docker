@@ -1,0 +1,62 @@
+#!/bin/bash
+
+source /app/bin/include-pdb.sh
+
+syntax() {
+    abort "Syntax: $0 {env} {action} {name}
+
+Actions:
+
+    pwreset  - generate a new password with a 1-day expiration
+    pw       - generate a new password with a 90-day expiration
+    readonly - create/update & grant user readonly privs (i.e. glados)
+    admin    - create/update & grant user admin privs - RESETS PASSWORD
+    drop     - drop user
+
+"
+}
+
+if [ -z "$1" ]; then
+    syntax
+fi
+
+load_reflex_dbenv $1
+
+action="$2"
+
+if [ -z "$action" ]; then
+    syntax
+fi
+
+if [ -z "$DATABASE_NAME" ]; then
+    abort "Unable to load DB?"
+fi
+
+user=$3
+if [ -z "$user" ]; then
+    user=$EXTERNAL_USER
+    echo "{user} unspecified, defaulting to yourself: $EXTERNAL_USER"
+    sleep 1
+fi
+
+case $action in
+    pwreset)
+      update_pwreset $DATABASE_NAME $user 1
+      ;;
+    pw)
+      update_pwreset $DATABASE_NAME $user 90
+      ;;
+    admin)
+      update_admin $DATABASE_NAME $user
+      ;;
+    readonly)
+      update_readonly $DATABASE_NAME $user $4
+      ;;
+    drop)
+      drop_user $DATABASE_NAME $user
+      ;;
+    *)
+      syntax
+      ;;
+esac
+

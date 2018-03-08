@@ -1,0 +1,22 @@
+#!/usr/bin/perl
+
+# quick-n-dirty way to switch owner so jenkins can futz with a file
+$file = $ARGV[0];
+
+$base = "/backup";
+
+$file =~ s:/+:/:g;
+$file =~ s:^$base/::;
+
+if ($file =~ /\// || -d "$base/$file" || length($file) == 0) {
+    die("Nope");
+}
+
+opendir(DIR, $base) || die("opendir($base): $!");
+for $f (readdir(DIR)) {
+    if ($f =~ /^$file/) {
+#        print("rm $f\n");
+        unlink("$base/$f");
+    }
+}
+closedir(DIR);

@@ -1,0 +1,10 @@
+boto3
+rfx
+loremipsum
+names
+psycopg2
+uuid
+Faker
+nameparser
+#usaddress
+postal-address

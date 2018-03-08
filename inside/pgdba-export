@@ -1,0 +1,24 @@
+#!/bin/bash
+
+source /app/bin/include-pdb.sh
+
+init_backup
+
+SRC=$1
+
+# include argparse for things like --no-restart and stuff
+if [ -z "$SRC" ]; then
+    abort "Syntax: $0 {source-env}
+
+Export {source-env} database to file.  You should include BKVOL with this to be effective:
+
+    BKVOL=/data/backup $0 {source-env}
+
+Which will put the export into your imported BKVOL
+"
+fi
+
+label=${SRC}-export
+FILE=$DUMPDIR/$label-$TIMESTAMP.sql
+
+backup  $SRC $FILE

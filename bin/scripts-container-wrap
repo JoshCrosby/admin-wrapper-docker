@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+# vim:set expandtab ts=4 sw=4 ai ft=python:
+#
+# This is an "outside" container script, that pulls in the repo built
+# version and then runs the inside scripts
+#
+# Derived from Protos Library; License by GNU Affrero; Created 2017 Brandon Gillespie
+
+import os
+import os.path
+import sys
+#import argparse
+import socket
+import shutil
+import rfx
+
+
+from admscr import as_svc_user, whoami, run, run_capture, run_or_die, SVC_USER_HOME, MY_HOME
+
+###############################################################################
+# if you want to pull a remote repo, specify your hostname and what the remote is
+REPOS = {
+    "hostname": "host/image:tag"
+}
+
+###############################################################################
+def main():
+#    parser = argparse.ArgumentParser()
+#    parser.add_argument("--debug", action='append')
+#    parser.add_argument("--test", action='store_true')
+
+    owd = os.getcwd()
+    cmd = os.path.basename(sys.argv[0])
+    cmd_args = sys.argv[1:]
+    host = socket.gethostname()
+
+    myuser = whoami()
+    if myuser == "root":
+        sys.exit("Run as yourself or an account with reflex configured")
+
+    # which image to use?
+    img = REPOS.get(host.lower())
+
+    # if running local, don't worry about logging into ECR
+    if not img:
+        img = "admin-scripts:latest"
+
+    # or we are running as jenkins and login to ECR
+    else:
+        out = as_svc_user(run_capture, "docker", "pull", img)
+        if out.get('error'):
+            as_svc_user(run_capture, "rm -f " + SVC_USER_HOME + "/.ecr_last_login")
+            as_svc_user(run_or_die, SVC_USER_HOME + "/bin/docker-ecr-login.sh")
+            as_svc_user(run_or_die, "docker", "pull", img)
+
+    os.chdir(owd)
+
+    # bring in reflex configs
+    reflex = rfx.Base().cfg_load()
+
+    vols = list()
+
+    # figure out volume mounts
+    if os.path.exists(MY_HOME + "/.aws/credentials"):
+        vols += ["-v", MY_HOME + "/.aws" + ":/root/.aws"]
+
+    # without this, backups stay inside container and get reaped
+    if os.getenv("BKVOL"):
+        vols += ["-v", os.getenv("BKVOL") + ":/backup"]
+
+    # import/export for the container
+    if os.getenv("LOCALVOL"):
+        vols += ["-v", os.getenv("LOCALVOL") + ":/local"]
+    else:
+        print("... mounting '.' (" + owd + ") as /local")
+        vols += ["-v", owd + ":/local"]
+
+    name = cmd + "-" + myuser
+
+    existing = run_capture("docker ps --format '{{.Names}}'|grep ^" + name)
+    if len(existing['out']) > 0:
+        print("""
+Just FYI, you currently have other containers of this type:
+
+""" + existing['out'])
+
+    # if we are interactive (not cron) then include -it
+    tty = []
+    if run("tty", "-s") == 0:
+        tty = ["-it"]
+
+    # log that we are doing this
+    logger_args = list([
+        "cmd="+ cmd,
+        "user=" + myuser,
+    ])
+    if cmd_args:
+        logger_args.append("args=\"{}\"".format(" ".join(cmd_args)))
+    run("logger", "-t", "adm-script", *logger_args)
+
+    cmd = "./" + cmd
+
+    # build the big ugly call
+    docker_run = ["docker", "run", "--rm"] + tty
+    docker_run += ["--name={}-{}".format(name, os.getpid())]
+    docker_run = docker_run + vols
+    docker_run += ["-e", "DEBUG=" + os.getenv("DEBUG", '')]
+    docker_run += ["-e", "REFLEX_URL=" + reflex.cfg['REFLEX_URL']]
+    docker_run += ["-e", "REFLEX_APIKEY=" + reflex.cfg['REFLEX_APIKEY']]
+    docker_run += ["-e", "EXTERNAL_HOST=" + host]
+    docker_run += ["-e", "EXTERNAL_USER=" + myuser]
+    for env in os.getenv("ADMIN_SCRIPTS_ENV", "").split(","):
+        if env:
+            docker_run += ["-e", "{}={}".format(env, os.getenv(env))]
+    docker_run += [img, cmd] + cmd_args
+
+    # execv replaces current process
+    #DEBUG("exec: {}", json.dumps(docker_run, indent=2))
+
+    # Because docker runs as root, we don't need to do this as_svc_user()
+    os.execv(shutil.which(docker_run[0]), docker_run)
+
+################################################################################
+if __name__ == "__main__":
+    main()

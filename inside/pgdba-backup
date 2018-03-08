@@ -1,0 +1,67 @@
+#!/bin/bash
+
+source /app/bin/include-pdb.sh
+
+init_backup
+
+SRC=$1
+DST=$2
+TYPE=$3
+
+# include argparse for things like --no-restart and stuff
+if [ -z "$SRC" -o -z "$DST" -o -z "$TYPE" ]; then
+    abort "Syntax: $0 {source-env} {dest-env} {type:daily,weekly,etc}
+
+DST can be '-' which is to skip the clone.
+Setenv NO_S3ARCHIVE to skip the s3 archive.
+
+If you do both of the above ^ you may want to just do pgdba-export
+"
+fi
+
+# optional clone
+if [ "$DST" != "-" ]; then
+    prod_dst_okay "$DST"
+
+    # stop the destination application
+    hook=$(engine svc get $DST deploy-hook --format=txt 2>/dev/null)
+    call_svc_hook "$DST" "$hook" stop Stopping
+fi
+
+label=${SRC}-$TYPE-backup
+FILE=$DUMPDIR/$label-$TIMESTAMP.sql
+clean_onexit $label
+
+backup  $SRC $FILE # prd
+
+# optional clone
+if [ "$DST" != "-" ]; then
+    restore $DST $FILE # stg
+
+    # resume the service
+    call_svc_hook "$DST" "$hook" start Resuming
+fi
+
+# encrypt and ship the backup to S3
+if [ ! $NO_S3ARCHIVE ]; then
+    load_reflex_opsenv
+    encrypt $FILE && \
+       s3_archive $FILE $PREFIX
+
+    cleanup $FILE
+else
+    echo "Backup file is $label-$TIMESTAMP.sql"
+fi
+
+#### sensu doesn't have webhooks, so add in 'command' capability
+hook=$(engine svc get $SRC backup-deadman-hook --format=txt 2>/dev/null)
+if [ -z "$hook" ]; then
+    cmd=$(engine svc get $SRC backup-deadman-cmd --format=txt 2>/dev/null)
+    if [ -n "$cmd" ]; then
+        msg "Calling deadman monitor cmd"
+        eval "$cmd"
+    fi
+else
+    msg "Calling deadman monitor hook"
+    curl --fail -s "$hook"
+fi

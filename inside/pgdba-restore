@@ -1,0 +1,29 @@
+#!/bin/bash
+
+source /app/bin/include-pdb.sh
+
+init_backup
+
+DST=$1
+filename=$2
+
+# include argparse for things like --no-restart and stuff
+if [ -z "$DST" -o -z "$filename" ]; then
+    abort "Syntax: $0 {dest-env} {filename - not absolute}"
+fi
+FILE=$DUMPDIR/$filename
+if [ ! -f $FILE ]; then
+    abort "Cannot find $FILE"
+fi
+
+prod_dst_okay "$DST"
+
+# stop the destination application
+hook=$(engine svc get $DST deploy-hook --format=txt 2>/dev/null)
+call_svc_hook "$DST" "$hook" stop Stopping
+
+restore $DST $FILE
+
+# resume the service
+call_svc_hook "$DST" "$hook" start Resuming
+

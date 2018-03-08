@@ -1,0 +1,21 @@
+#!/bin/sh
+
+source /app/bin/include-pdb.sh
+
+service=$1
+shift
+
+load_reflex_dbenv $service
+
+export DATABASE_USER=$EXTERNAL_USER
+
+msg "Connecting to postgres DB $service "
+echo "
+If you have forgotten your password, you can manager your user with:
+
+   pgdba-user $service pw $DATABASE_USER       # reset your password
+   pgdba-user $service readonly $DATABASE_USER # drop & recreate your user w/read (preferred)
+   pgdba-user $service admin $DATABASE_USER    # drop & recreate your user w/write/alter
+"
+
+psql --pset pager=off -d $DATABASE_NAME -h $DATABASE_HOST -U $DATABASE_USER -W
