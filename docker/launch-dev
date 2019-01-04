@@ -1,0 +1,35 @@
+#!/bin/bash
+
+# for dev we do deps build/compile at run time since we are importing the volume
+
+################################################
+#if [ ! -d ~/.ssh ]; then
+#    mkdir ~/.ssh
+#fi
+
+# bring in the gitlab ssh key so mix can use it
+#cp docker/dev-gitlab-ssh-readonly ~/.ssh/id_rsa
+
+# because elixir mix integration to git is not accepting keys
+#echo "StrictHostKeyChecking no" >> ~/.ssh/config
+#chmod 600 ~/.ssh/*
+
+################################################
+#cd app
+if [ ! -d deps -o ! -d _build ]; then
+    rm -rf _build deps # cleanup
+fi
+
+#if [ ! -d assets/node_modules ]; then
+#    echo "===> Rebuilding assets"
+#    (cd assets; npm install)
+#fi
+if [[ mix.exs -nt mix.lock || ! -d _build ]]; then
+    echo "===> Detected need for recompile..."
+	rm -rf /root/.cache
+	mix deps.get || exit 1
+	mix deps.compile || exit 1
+fi
+
+echo "===> starting phoenix in dev mode..."
+exec mix phx.server

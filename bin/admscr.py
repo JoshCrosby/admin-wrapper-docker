@@ -1,1 +1,1 @@
-../inside/admscr.py
+../cli/admscr.py

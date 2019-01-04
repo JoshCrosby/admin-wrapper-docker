@@ -1,0 +1,21 @@
+version: '3.3'
+services:
+  admin-scripts:
+    image: admin-scripts
+    build:
+      context: ../..
+      dockerfile: docker/dev/Dockerfile
+    #  args:
+    volumes:
+      - ../../cli:/cli
+      - shared:/shared
+  db:
+    image: mariadb
+    volumes:
+      - mydata:/var/lib/mysql
+      - shared:/shared
+    environment:
+      - MYSQL_ALLOW_EMPTY_PASSWORD=true
+volumes:
+  mydata:
+  shared:

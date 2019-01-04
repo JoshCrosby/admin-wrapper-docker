@@ -1,20 +1,21 @@
-FROM postgres:9.6-alpine
+FROM elixir:alpine
 
-# used for 'date' command with -d
-RUN apk --no-cache add coreutils perl python3 \
+ENV INSTALL_BASE=/app
+ARG MIX_ENV
+
+WORKDIR $INSTALL_BASE
+COPY requirements.txt $INSTALL_BASE/
+
+RUN apk --no-cache update && \
+    apk --no-cache add bash coreutils perl \
         libffi openssl vim gnupg \
         openssh perl-json bind-tools \
         bash curl tar gcc libc-dev libffi-dev \
         linux-headers make python3-dev && \
     pip3 install --upgrade pip && \
-    pip3 install rfxcmd s3cmd # or aws?
+    pip3 install -r requirements.txt
 
-WORKDIR /app
-COPY requirements.txt /app
-RUN pip3 install --upgrade pip && \
-   pip3 install -r /app/requirements.txt
-
-COPY inside /app/bin
+COPY cli /app/cli
 COPY profile.sh /etc/profile.d/profile.sh.in
 
 ARG BUILD_VERSION
@@ -27,6 +28,6 @@ RUN echo $BUILD_VERSION > .build_version && \
 VOLUME /local
 VOLUME /backup
 
-WORKDIR /app/bin
+WORKDIR /app/cli
 ENTRYPOINT
 CMD /bin/sh

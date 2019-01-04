@@ -98,7 +98,7 @@ Just FYI, you currently have other containers of this type:
         logger_args.append("args=\"{}\"".format(" ".join(cmd_args)))
     run("logger", "-t", "adm-script", *logger_args)
 
-    cmd = "./" + cmd
+    cmd = "/app/cli/" + cmd
 
     # build the big ugly call
     docker_run = ["docker", "run", "--rm"] + tty

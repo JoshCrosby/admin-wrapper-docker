@@ -1,0 +1,12 @@
+#!/usr/bin/python3
+
+import requests
+import sys
+import os
+
+port = os.environ['HEALTH_PORT']
+
+res = requests.get("http://127.0.0.1:" + port + "/health")
+if res.status_code != 204:
+   sys.exit(1)
+sys.exit(0)
