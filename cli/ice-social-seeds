@@ -1,0 +1,179 @@
+#!/usr/bin/env python3
+# vim:set expandtab ts=4 sw=4 ai ft=python:
+"""
+"""
+
+import sys
+import datetime
+import os
+import time
+import json
+import requests
+import argparse
+import random
+import string
+import uuid
+import nameparser
+import faker
+import dictlib
+import postal_address
+import rfx
+import rfx.client
+import jwt
+
+################################################################################
+fake = faker.Faker()
+fake.seed(time.time())
+
+# debug and log outputs
+_DEBUG = os.environ.get('DEBUG', False)
+def debug(*args):
+    if _DEBUG:
+        print("debug>> " + args[0].format(*args[1:]))
+
+def log(msg, *args):
+    msg = time.strftime("%Y-%m-%d %H:%M:%S ") + msg
+    print(msg.format(*args))
+
+################################################################################
+def databus_accesskey(config):
+    refresh = jwt.encode(dict(
+      jti=str(uuid.uuid4()),
+      sub=config.domain,
+      kid=config.apikey.key,
+      exp=time.time() + (10*60)
+    ), key=config.apikey.secret).decode()
+
+    signin_url = "https://{}/auth/v0/access".format(config.domain)
+    res = requests.post(signin_url,
+              data={"client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                    "client_assertion": refresh})
+    if res.status_code != 302:
+        sys.exit("Unable to signin to {}!  Check databus logs for more info.".format(signin_url))
+    log("Signin at " + signin_url)
+    config['accesskey'] = res.json()['access_token']
+    return config
+
+################################################################################
+RANKS = [[x, fake.safe_color_name().capitalize() + " " + fake.word().capitalize()] for x in range(1, 10)]
+
+# future: make this more async capable
+SEQUENCE = 1000003
+def sequencer():
+    global SEQUENCE
+    SEQUENCE = SEQUENCE + 1
+    return SEQUENCE
+
+################################################################################
+def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
+    global RANKS
+    addr = postal_address.address.random_address()
+    my_id = sequencer()
+    rank = fake.word(ext_word_list=RANKS)
+    return dict(
+        icentris_client=cfg.tenant,
+        client_user_id="TEST" + str(my_id),
+        first_name=fake.first_name(),
+        last_name=fake.last_name(),
+        email=fake.email(),
+        home_phone=fake.phone_number(),
+        mobile_phone=fake.phone_number(),
+        address=addr.line1,
+        address2=addr.line2,
+        city=addr.city_name,
+        state=addr.subdivision_code,
+        postal_code=addr.postal_code,
+        country=addr.country_code, signup_date=fake.date_between(start_date="-10y", end_date="today").strftime("%Y-%m-%d %H:%M:%S"),
+        birth_date=fake.date_between(start_date="-60y", end_date="-18y").strftime("%Y-%m-%d"),
+        company_name=fake.company(),
+        rank={
+            "id": str(rank[0]),
+            "description": rank[1]
+        },
+        type={
+            "id": "1",
+            "description": "Distributor"
+        },
+        status={
+            "id": "1",
+            "description": "Active"
+        },
+        upline={
+        	"client_parent_id": "0",
+        	"client_sponsor_id": "0",
+        }
+    )
+    return dictlib.union(user, template)
+
+def create_user(config, user):
+    url = "https://{}/data/v1/object/user".format(config.domain)
+    print(json.dumps(user, indent=2))
+    print(url)
+    res = requests.post(url, headers={
+                 'authorization': 'Bearer ' + config.accesskey
+               }, json=user)
+    if res.status_code == 204:
+        print("Success")
+    else:
+        print("FAILURE => {}\n{}".format(res.status_code, res.content))
+
+################################################################################
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--initialize", "--init", help="run full initializations")
+    parser.add_argument("tenant", help="name of tenant, ala 'bluesun'")
+    parser.add_argument("lane", help="short name of lane, ala 'd1' 'p1' 't1' etc")
+    args = parser.parse_args()
+
+    # get the config from reflex/databus
+    rcs = rfx.client.Session().cfg_load() 
+    ingress_cfg = "databus-ingress-" + args.lane
+    try:
+        dcfg = rcs.get("config", ingress_cfg)
+    except Exception as err:
+        sys.exit("Unable to get configuration, error: {}".format(err))
+
+    # extract one of the apikeys for this environ (note: Future we should pull a key based on name within the apikey)
+# SWITCH to use inheritance
+#    try:
+#        source = dictlib.dig(dcfg, 'sensitive.config.mapping.clients')[args.tenant]
+#    except Exception as err:
+#        sys.exit("Unable to find client mapping for {} in {} (reflex)".format(args.tenant, ingress_cfg))
+        
+    try:
+        apikeys = dictlib.dig(dcfg, 'sensitive.config.auth.apikeys')[args.tenant]
+    except Exception as err:
+        sys.exit("Unable to find apikey for {} in {} (reflex)".format(args.tenant, ingress_cfg))
+
+    # find which hostname we should go in as
+    domain = None
+    for host, value in dictlib.dig(dcfg, 'sensitive.config.mapping.domains').items():
+        if value == args.tenant:
+            domain = host
+            break
+    if not domain:
+        sys.exit("Unable to find an inbound domain for this tenant, check reflex config?")
+
+    # build our config to pass around
+    apikey=list(apikeys.keys())[0]
+    config = dictlib.Obj(
+        apikey=dict(
+          key=apikey,
+          secret=apikeys[apikey]['secret']
+        ),
+        tenant=args.tenant,
+        lane=args.lane,
+        domain=domain
+    )
+    config = databus_accesskey(config)
+
+    # create users now
+#    if args.initialize:
+         # create a root user first
+    for x in range(1, 1): # 10):
+        create_user(config, user_factory(config))
+
+    # creat
+    
+if __name__ == "__main__":
+    main()

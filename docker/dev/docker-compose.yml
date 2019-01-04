@@ -7,7 +7,8 @@ services:
       dockerfile: docker/dev/Dockerfile
     #  args:
     volumes:
-      - ../../cli:/cli
+      - ../../cli:/app/cli
+      - ~/.reflex:/root/.reflex
       - shared:/shared
   db:
     image: mariadb
