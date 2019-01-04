@@ -1,0 +1,135 @@
+#!/usr/bin/env python3
+
+#
+# Temporary script - will be relocated somewhere else eventually.
+#
+# For setting up a new tenant in Databus.
+#
+
+import os
+import sys
+import argparse
+import subprocess
+import rfx
+import rfx.client
+import json
+
+################################################################################
+def flush():
+    sys.stdout.flush()
+    sys.stderr.flush()
+
+################################################################################
+def cmd(cmd, abort=False):
+    flush()
+    if isinstance(cmd, list):
+      shell = False
+    else:
+      shell = True
+    sub = subprocess.call(cmd, shell=shell)
+    flush()
+    if sub:
+      if abort:
+          sys.exit(sub)
+      return False
+    return True
+
+################################################################################
+def cmd_out(cmd, abort=False):
+    flush()
+    if isinstance(cmd, list):
+      shell = False
+    else:
+      shell = True
+    sub = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=shell)
+    output, err = sub.communicate()
+    flush()
+    output = output.decode() # grr bytes object
+    if sub.returncode > 0:
+      if abort:
+          sys.exit(output)
+      return (False, output)
+    return (True, output)
+
+################################################################################
+def rfx_get_abort(rcs, obj, name):
+    try:
+        return rcs.get(obj, name)
+    except rfx.client.ClientError as err:
+        sys.exit("Problem querying reflex, are you setup properly?  Error:\n>>> {}".format(err))
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("lane", help="dev, tst, etc")
+    parser.add_argument("tenant_token", help="short token for tenant, ala `bluesun`")
+    parser.add_argument("contact_user", help="who is the contact at tenant site")
+    args = parser.parse_args()
+    rcs = rfx.client.Session(base=rfx.Base().cfg_load())
+    reflex_config = rfx_get_abort(rcs, "config", "reflex").get("config")
+    lanes = reflex_config["lanes"]
+    if not lanes.get(args.lane):
+        sys.exit("Invalid lane `{}`, must be one of: {}".format(args.lane, ", ".join(lanes.keys())))
+
+    #
+    base_domain = "{}.{}.vibeoffice.com".format(args.tenant_token, args.lane)
+    data_domain = "data-" + base_domain
+    lane = "{}{}".format(lanes[args.lane].get('short'), reflex_config['regions']['oregon']['nbr'])
+
+    # get apikey using v0 auth, need to switch this to v2
+    result, out = cmd_out(["node", "./generate-apikey.js"])
+    if not result:
+        sys.exit("Unable to run ./generate-apikey.js.  Error:\n>>> {}".format(out))
+    key = json.loads(out)
+
+    print("Updating databus-ingress-" + lane)
+    chgs = dict(sensitive=dict(config=dict(
+        mapping=dict(domains={
+            data_domain: args.tenant_token,
+            base_domain: args.tenant_token
+        }),
+        auth=dict(apikeys={
+            args.tenant_token: {
+                key["id"]: {
+                    "iat":  key["expires"],
+                    "secret": key["secret"],
+                    "contact": args.contact_user
+                }
+            }
+        }
+    ))))
+
+    ############################################################################
+    # set for databus-ingress
+    result = rcs.patch("config", "databus-ingress-" + lane, chgs)
+    if result["status"] != "updated":
+        sys.exit("Status is not=updated! {}".format(result))
+    output = rfx_get_abort(rcs, "config", "databus-ingress-" + lane)
+
+    # validate
+    newcfgs = output.get("sensitive").get("config")
+    map2key = newcfgs.get("mapping").get("domains").get(data_domain)
+    auth2key = newcfgs.get("auth").get("apikeys").get(args.tenant_token).get(key["id"])
+    print("config mapping {} => {}".format(data_domain, map2key))
+    print("apikey setup {} => {}".format(args.tenant_token, auth2key))
+
+    ############################################################################
+    # set for leo-bus
+    chgs = dict(sensitive=dict())
+    for base in ("config", "bus"): # until the code is fully to bus, we need to change both
+        print("Updating leo-bus-{}.sensitive.{}.tenant.{}.url".format(lane, base, args.tenant_token))
+        chgs["sensitive"][base] = dict(tenant={
+            args.tenant_token: {
+                "url": "https://" + base_domain
+            }
+        })
+
+    print("\n<You may need to add db credentials if this is a new tenant>\n")
+
+    result = rcs.patch("config", "leo-bus-" + lane, chgs)
+
+    print("Databus endpoint: https://" + data_domain)
+    print("USER APIKEY:\n\n\t{}.{}".format(key["id"], key["secret"]))
+
+################################################################################
+if __name__ == '__main__':
+    main()
