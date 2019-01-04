@@ -45,26 +45,5 @@ The tool to manage the tools (the master process)
 
 The `./local` command is a useful wrapper for docker-compose.  It prints out what it is running, so you can adjust to suite your needs.  You can get a full syntax by just running the command `./local`
 
-It requires the use of `./docker/dev/run.env`.  Reference `./docker/dev/run.env.default` for some defaults which run inside a container -- in this world also enable the container.
+	./local dev build
 
-### Running
-
-To startup:
-
-	./local dev up --build
-
-This will build and launch the app in docker, running on `localhost:5000`.  If you want to skip docker build and just run the app:
-
-	./local dev up
-
-The folders `docker` and `app` are imported into the container, so it will watch for live changes.
-
-### Connecting a shell / iex
-
-You can connect a shell to your running service with:
-
-	./local dev sh
-
-And from there you can run iex:
-
-	cd src; iex
