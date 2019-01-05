@@ -58,7 +58,7 @@ def databus_accesskey(config):
 RANKS = [[x, fake.safe_color_name().capitalize() + " " + fake.word().capitalize()] for x in range(1, 10)]
 
 # future: make this more async capable
-SEQUENCE = 1000003
+SEQUENCE = int(time.time() * 1000)
 def sequencer():
     global SEQUENCE
     SEQUENCE = SEQUENCE + 1
@@ -91,7 +91,7 @@ def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
             "description": rank[1]
         },
         type={
-            "id": "1",
+            "id": "2",
             "description": "Distributor"
         },
         status={
