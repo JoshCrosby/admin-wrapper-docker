@@ -107,8 +107,8 @@ def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
 
 def create_user(config, user):
     url = "https://{}/data/v1/object/user".format(config.domain)
-    print(json.dumps(user, indent=2))
-    print(url)
+    log("user={}", json.dumps(user, indent=2))
+    log("sending to {}", url)
     res = requests.post(url, headers={
                  'authorization': 'Bearer ' + config.accesskey
                }, json=user)
@@ -120,6 +120,7 @@ def create_user(config, user):
 ################################################################################
 def main():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--users", type=int)
     parser.add_argument("--initialize", "--init", help="run full initializations")
     parser.add_argument("tenant", help="name of tenant, ala 'bluesun'")
     parser.add_argument("lane", help="short name of lane, ala 'd1' 'p1' 't1' etc")
@@ -170,8 +171,9 @@ def main():
     # create users now
 #    if args.initialize:
          # create a root user first
-    for x in range(1, 1): # 10):
-        create_user(config, user_factory(config))
+    if args.users:
+        for x in range(0, args.users):
+            create_user(config, user_factory(config))
 
     # creat
     
