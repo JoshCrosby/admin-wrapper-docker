@@ -43,22 +43,33 @@ def main():
     os.environ['PYTHONUNBUFFERED'] = 'true'
 
     # reminder: update syntax()
-    mode = getarg("mode", *optnames())[0]
-    action = getarg("action", "run", "iex", "mix", "ps", "down", "up", "exec",
+    action = getarg("action", "run", "ps", "down", "up", "exec",
+                    "restart", "rm", "getpname",
                     "sh", "run-sh", "raw-sh", "kill", "build", "scale", "prune")[0]
-    app = getapp(mode)
+
+    # reminder: update syntax()
+    profile = getarg("profile", *optnames())[0]
+    app = getapp(profile)
+    img = getimage(profile, app)
 
     extra = sys.argv
+    pname = os.getcwd().split("/")[-1].replace("-", "").replace(" ", "-") + "-" + profile
 
-    cmd = [getcmd("docker-compose"), "-f", "docker/" + mode + "/docker-compose.yml"]
+    cmd = [getcmd("docker-compose"), "-p", pname,  "-f", "docker/" + profile + "/docker-compose.yml"]
 
     # direct pass-thru.  add: `app scale=3` to cluster
-    if action in ["build", "ps", "exec", "up", "run", "down", "kill"]:
+    if action == "getpname":
+        print(pname)
+        sys.exit(0)
+
+    elif action in ["build", "ps", "exec", "up", "run", "down", "kill", "rm"]:
         cmd += [action]
         #if mode == "tst" and action == "up":
         #    cmd += ["--force-recreate", "--build", "--abort-on-container-exit", "--exit-code-from", app]
         if action == "build":
-            cmd += [app]
+            cmd += ["--build-arg", "GID={}".format(os.getgid()),
+                    "--build-arg", "UID={}".format(os.getuid()),
+                    app]
     elif action == "scale":
         if extra:
             cmd += ["scale", app + "=" + extra[0]]
@@ -67,21 +78,16 @@ def main():
             cmd += ["scale", app + "=3"]
     elif action == "prune":
         cmd = [getcmd("docker"), "system", "prune", "-f"]
-    elif action == "iex":
-        cmd += ["run", app, "./docker/reflex-env", "iex"]
-    elif action == "mix":
-        cmd += ["run", app, "./docker/reflex-env", "mix"]
     elif action == "sh":
-        cmd += ["exec", app, "/bin/sh"]
+        cmd += ["exec", app, "/bin/bash"]
     elif action == "run-sh":
-        cmd += ["run", app, "/bin/sh"]
+        cmd += ["run", app]
     elif action == "raw-sh":
-        img = getimage(mode, app)
         cmd = [getcmd("docker"), "run", "-it", "--entrypoint", "/bin/sh", img]
 
     if extra:
         cmd += extra
-    
+
     do(cmd)
 
 ################################################################################
@@ -95,6 +101,10 @@ def getcmd(cmd):
     exit("Unable to find '" + cmd + "' in your path!")
 
 def do(args):
+    if not os.getenv("LOCAL_HUSH"):
+        print("""
+!!! This is a wrapper for docker, simply as a helper.  If it isn't working right, try
+!!! adjusting and running the command directly!""")
     sys.stderr.write("\n>>>")
     arg0 = True
     for arg in args:
@@ -109,13 +119,13 @@ def do(args):
 
 ################################################################################
 # note: I could load pyyaml, but I want to keep out external dependencies
-def getimage(mode, app):
-    with open("docker/" + mode + "/docker-compose.yml") as cfg:
+def getimage(profile, app):
+    with open("docker/" + profile + "/docker-compose.yml") as cfg:
         in_svc=False
         for line in cfg:
             if in_svc:
                 if re.match(r'^\s*image:', line):
-                    image = line.split(':')[1].strip()
+                    image = ":".join(line.split(':')[1:]).strip()
                     return image
             elif re.match(r'^\s*services:', line):
                 in_svc = True
@@ -123,8 +133,8 @@ def getimage(mode, app):
 
 ################################################################################
 # note: I could load pyyaml, but I want to keep out external dependencies
-def getapp(mode):
-    compose = 'docker/' + mode + '/docker-compose.yml'
+def getapp(profile):
+    compose = 'docker/' + profile + '/docker-compose.yml'
 
     if not os.path.exists(compose):
         sys.exit("Cannot find compose file: " + compose)
@@ -135,7 +145,8 @@ def getapp(mode):
             if in_svc:
                 match = re.search(r'^\s*([a-z][^:]+)', line)
                 if match:
-                    print("Using service `{}` in: {}".format(match.group(1), compose))
+                    if not os.getenv("LOCAL_HUSH"):
+                        print("Using service `{}` in: {}".format(match.group(1), compose))
                     return match.group(1)
             elif re.match(r'^\s*services:', line):
                 in_svc = True
@@ -175,12 +186,9 @@ def getarg(label, *opts):
 def syntax(*err):
     opts = optnames()
     print("""
-Syntax: """ + __cmd__ + """ {mode} {action} [extra args...]
+Syntax: """ + __cmd__ + """ {action} {profile} [extra args...]
 
 Any extra arguments are passed onto following commands.
-
-{mode} is one of the run modes (from ./docker/ folder):
-  """ + "\n  ".join(opts) + """
 
 {action} is any of:
   run*      - run a one-off command in the app container
@@ -190,17 +198,20 @@ Any extra arguments are passed onto following commands.
   kill*     - kill containers
   build*    - build the app service
   exec      - execute a command in a running app container
-  mix       - run a mix task
-  iex       - get the elixir repl
   sh        - get a shell in the running app container, on
               the compose stack (with db)
   run-sh    - get a shell in a new app container (not the
               one currently live).
   raw-sh    - skip compose, just run the container and a shell
+  restart   - restart a service
   scale X   - scale the app service to a cluster
   prune     - cleanup derelict containers
 
 * these are wrapped pass-thru to docker-compose
+
+{profile} is one of the profiles from ./docker/ folder:
+  """ + "\n  ".join(opts) + """
+
     """)
     if err:
         print("==> " + err[0] + "\n")
@@ -208,4 +219,3 @@ Any extra arguments are passed onto following commands.
 
 if __name__ == '__main__':
     main()
-

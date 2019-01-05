@@ -13,6 +13,10 @@ import subprocess
 import rfx
 import rfx.client
 import json
+import secrets
+import base64
+import uuid
+import time
 
 ################################################################################
 def flush():
@@ -58,6 +62,13 @@ def rfx_get_abort(rcs, obj, name):
     except rfx.client.ClientError as err:
         sys.exit("Problem querying reflex, are you setup properly?  Error:\n>>> {}".format(err))
 
+def gen_apikey():
+    return dict(
+      id=str(uuid.uuid4()).replace("-", ""),
+      secret=base64.b64encode(secrets.token_bytes(42)).decode(),
+      iat=time.time()
+    )
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("lane", help="dev, tst, etc")
@@ -76,10 +87,21 @@ def main():
     lane = "{}{}".format(lanes[args.lane].get('short'), reflex_config['regions']['oregon']['nbr'])
 
     # get apikey using v0 auth, need to switch this to v2
-    result, out = cmd_out(["node", "./generate-apikey.js"])
-    if not result:
-        sys.exit("Unable to run ./generate-apikey.js.  Error:\n>>> {}".format(out))
-    key = json.loads(out)
+    key = gen_apikey()
+
+    ############################################################################
+    # set for databus-ingress
+    print("Updating databus-ingress")
+    chgs = dict(sensitive=dict(config=dict(
+        mapping=dict(clients={
+            args.tenant_token: {"source": "ingress-proxy"}
+        }))))
+
+    # TODO: DRY this out
+    result = rcs.patch("config", "databus-ingress", chgs)
+    if result["status"] != "updated":
+        sys.exit("Status is not=updated! {}".format(result))
+    output = rfx_get_abort(rcs, "config", "databus-ingress")
 
     print("Updating databus-ingress-" + lane)
     chgs = dict(sensitive=dict(config=dict(
@@ -90,7 +112,7 @@ def main():
         auth=dict(apikeys={
             args.tenant_token: {
                 key["id"]: {
-                    "iat":  key["expires"],
+                    "iat":  key["iat"],
                     "secret": key["secret"],
                     "contact": args.contact_user
                 }
@@ -98,8 +120,6 @@ def main():
         }
     ))))
 
-    ############################################################################
-    # set for databus-ingress
     result = rcs.patch("config", "databus-ingress-" + lane, chgs)
     if result["status"] != "updated":
         sys.exit("Status is not=updated! {}".format(result))
@@ -119,9 +139,21 @@ def main():
         print("Updating leo-bus-{}.sensitive.{}.tenant.{}.url".format(lane, base, args.tenant_token))
         chgs["sensitive"][base] = dict(tenant={
             args.tenant_token: {
+              "vibe": {
                 "url": "https://" + base_domain
+#                "api":{
+#                  "bearer_token":"qSjakfN722pNrmzCcHwZ"
+#                },
+#                "mysql":{
+#                  "database":"",
+#                  "host":"",
+#                  "password":"",
+#                  "user":"",
+#                },
+              }
             }
         })
+# query the object and see if it needs api/mysql
 
     print("\n<You may need to add db credentials if this is a new tenant>\n")
 
