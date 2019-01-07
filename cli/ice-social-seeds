@@ -70,7 +70,7 @@ def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
     addr = postal_address.address.random_address()
     my_id = sequencer()
     rank = fake.word(ext_word_list=RANKS)
-    return dict(
+    user = dict(
         icentris_client=cfg.tenant,
         client_user_id="TEST" + str(my_id),
         first_name=fake.first_name(),
@@ -99,28 +99,29 @@ def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
             "description": "Active"
         },
         upline={
-        	"client_parent_id": "0",
-        	"client_sponsor_id": "0",
+            "client_parent_id": "0",
+            "client_sponsor_id": "0",
         }
     )
     return dictlib.union(user, template)
 
 def create_user(config, user):
     url = "https://{}/data/v1/object/user".format(config.domain)
-    log("user={}", json.dumps(user, indent=2))
     log("sending to {}", url)
     res = requests.post(url, headers={
                  'authorization': 'Bearer ' + config.accesskey
                }, json=user)
     if res.status_code == 204:
-        print("Success")
+        log("Submitted status={}", res.status_code)
     else:
-        print("FAILURE => {}\n{}".format(res.status_code, res.content))
+        log("Failed to submit => {}\n{}", res.status_code, res.content)
 
 ################################################################################
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--users", type=int)
+    parser.add_argument("--commit", action='store_true')
+    parser.add_argument("--template", help="json data applied to factory user")
     parser.add_argument("--initialize", "--init", help="run full initializations")
     parser.add_argument("tenant", help="name of tenant, ala 'bluesun'")
     parser.add_argument("lane", help="short name of lane, ala 'd1' 'p1' 't1' etc")
@@ -133,6 +134,13 @@ def main():
         dcfg = rcs.get("config", ingress_cfg)
     except Exception as err:
         sys.exit("Unable to get configuration, error: {}".format(err))
+
+    template = {}
+    if args.template:
+        try:
+            template = json.loads(args.template)
+        except Exception as err:
+            sys.exit("Unable to load template json: {}".format(err))
 
     # extract one of the apikeys for this environ (note: Future we should pull a key based on name within the apikey)
 # SWITCH to use inheritance
@@ -173,7 +181,12 @@ def main():
          # create a root user first
     if args.users:
         for x in range(0, args.users):
-            create_user(config, user_factory(config))
+            user = user_factory(config, template=template)
+            log("user={}", json.dumps(user, indent=2))
+            if args.commit:
+                create_user(config, user)
+            else:
+                log("Not committing (add --commit if you want to upload)")
 
     # creat
     
