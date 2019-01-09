@@ -68,14 +68,14 @@ def sequencer():
 def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
     global RANKS
     addr = postal_address.address.random_address()
-    my_id = sequencer()
+    my_id = "T-" + str(uuid.uuid4()).replace("-","")
     rank = fake.word(ext_word_list=RANKS)
     user = dict(
         icentris_client=cfg.tenant,
-        client_user_id="TEST" + str(my_id),
+        client_user_id=my_id,
         first_name=fake.first_name(),
         last_name=fake.last_name(),
-        email=fake.email(),
+        email="icentris.qa6+{}@gmail.com".format(my_id),
         home_phone=fake.phone_number(),
         mobile_phone=fake.phone_number(),
         address=addr.line1,
@@ -116,10 +116,19 @@ def create_user(config, user):
     else:
         log("Failed to submit => {}\n{}", res.status_code, res.content)
 
+def seed_user(args, config, template=dict()):
+    user = user_factory(config, template=template)
+    log("user={}", json.dumps(user, indent=2))
+    if args.commit:
+        create_user(config, user)
+    else:
+        log("Not committing (add --commit if you want to upload)")
+
 ################################################################################
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--users", type=int)
+    parser.add_argument("--test-users", action='store_true')
     parser.add_argument("--commit", action='store_true')
     parser.add_argument("--template", help="json data applied to factory user")
     parser.add_argument("--initialize", "--init", help="run full initializations")
@@ -181,14 +190,19 @@ def main():
          # create a root user first
     if args.users:
         for x in range(0, args.users):
-            user = user_factory(config, template=template)
-            log("user={}", json.dumps(user, indent=2))
-            if args.commit:
-                create_user(config, user)
-            else:
-                log("Not committing (add --commit if you want to upload)")
+            seed_user(args, config, template=template)
+#            user = user_factory(config, template=template)
+#            log("user={}", json.dumps(user, indent=2))
+#            if args.commit:
+#                create_user(config, user)
+#            else:
+#                log("Not committing (add --commit if you want to upload)")
 
-    # creat
+    if args.test_users:
+        seed_user(args, config, template=dict(type=dict(id=1)))
+        seed_user(args, config, template=dict(type=dict(id=2)))
+        for x in range(0, 4):
+            seed_user(args, config, template=dict(type=dict(id=3)))
     
 if __name__ == "__main__":
     main()
