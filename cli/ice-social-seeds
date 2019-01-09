@@ -187,16 +187,11 @@ def main():
 
     # create users now
 #    if args.initialize:
-         # create a root user first
+         # create a root tree user first
+
     if args.users:
         for x in range(0, args.users):
             seed_user(args, config, template=template)
-#            user = user_factory(config, template=template)
-#            log("user={}", json.dumps(user, indent=2))
-#            if args.commit:
-#                create_user(config, user)
-#            else:
-#                log("Not committing (add --commit if you want to upload)")
 
     if args.test_users:
         seed_user(args, config, template=dict(type=dict(id=1)))
