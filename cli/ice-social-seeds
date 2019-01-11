@@ -113,7 +113,8 @@ def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
         client_user_id=my_id,
         first_name=fake.first_name(),
         last_name="TEST " + fake.last_name(),
-        email="icentris.qa6+{}@gmail.com".format(my_id),
+        #email="icentris.qa6+{}@gmail.com".format(my_id),
+        email="vineela.kalluru+{}@icentris.com".format(my_id),
         home_phone=fake.phone_number(),
         mobile_phone=fake.phone_number(),
         address=addr_line1,
@@ -179,9 +180,13 @@ def main():
     parser.add_argument("--commit", action='store_true')
     parser.add_argument("--template", help="json data applied to factory user")
     parser.add_argument("--initialize", "--init", help="run full initializations")
+    parser.add_argument("--fixed", action='store_true')
     parser.add_argument("tenant", help="name of tenant, ala 'bluesun'")
     parser.add_argument("lane", help="short name of lane, ala 'd1' 'p1' 't1' etc")
     args = parser.parse_args()
+
+    if args.fixed:
+        fake.seed(1592) # or could make this a stored value
 
     # get the config from reflex/databus
     rcs = rfx.client.Session().cfg_load()
@@ -241,10 +246,10 @@ def main():
             seed_user(args, config, template=template)
 
     if args.test_users:
-        seed_user(args, config, template=dict(type=dict(id=1)))
-        seed_user(args, config, template=dict(type=dict(id=2)))
+        seed_user(args, config, template=dictlib.union(template, dict(type=dict(id=1))))
+        seed_user(args, config, template=dictlib.union(template, dict(type=dict(id=2))))
         for x in range(0, 4):
-            seed_user(args, config, template=dict(type=dict(id=3)))
+            seed_user(args, config, template=dictlib.union(template, dict(type=dict(id=3))))
 
     with open("seeds.{}.{}".format(config.domain, config.lane)) as seeds:
         for line in seeds:
