@@ -65,7 +65,7 @@ def databus_accesskey(config):
               data={"client_assertion_type": "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
                     "client_assertion": refresh})
     if res.status_code != 302:
-        sys.exit("Unable to signin to {}!  Check databus logs for more info.".format(signin_url))
+        sys.exit("Unable to signin to {} (status={})!  Check databus logs for more info.".format(signin_url, res.status_code))
     log("Signin at " + signin_url)
     config['accesskey'] = res.json()['access_token']
     return config
@@ -135,7 +135,7 @@ def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
             "description": rank[1]
         },
         type={
-            "id": "2",
+            "id": "3",
             "description": "Distributor"
         },
         status={
