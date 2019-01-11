@@ -25,6 +25,21 @@ import jwt
 fake = faker.Faker()
 fake.seed(time.time())
 
+def get_random(history, get_func, *args):
+    """Choose something random, but don't repeat - check against a history"""
+    new_name = get_func(*args)
+    attempts = -20
+    while history.get(new_name):
+        new_name = get_func(*args)
+        attempts -= 1
+        if attempts >= 20: # try adding digits 20 times first
+            raise Exception("Exhausted random names for {}".format(get_func))
+        if attempts >= 0:
+            new_name = "{}{}".format(new_name, str(attempts))
+
+    history[new_name] = True
+    return new_name
+
 # debug and log outputs
 _DEBUG = os.environ.get('DEBUG', False)
 def debug(*args):
@@ -59,22 +74,30 @@ RANKS = [[x, fake.safe_color_name().capitalize() + " " + fake.word().capitalize(
 
 # future: make this more async capable
 SEQUENCE = int(time.time() * 1000)
-def sequencer():
-    global SEQUENCE
-    SEQUENCE = SEQUENCE + 1
-    return SEQUENCE
+HISTORY = dict()
+def sequencer(name, get_func, *args):
+    global HISTORY
+    if not HISTORY.get(name):
+        HISTORY['name'] = dict()
+    return get_random(HISTORY['name'], get_func, *args)
+
+#    SEQUENCE = SEQUENCE + 1
+#    return SEQUENCE
 
 ################################################################################
 def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
     global RANKS
     addr = postal_address.address.random_address()
-    my_id = "T-" + str(uuid.uuid4()).replace("-","")
+    def fake_username():
+        return fake.profile()['username']
+    my_id = sequencer("ids", fake_username)
+#    "T-" + str(uuid.uuid4()).replace("-","")
     rank = fake.word(ext_word_list=RANKS)
     user = dict(
         icentris_client=cfg.tenant,
         client_user_id=my_id,
         first_name=fake.first_name(),
-        last_name=fake.last_name(),
+        last_name="TEST " + fake.last_name(),
         email="icentris.qa6+{}@gmail.com".format(my_id),
         home_phone=fake.phone_number(),
         mobile_phone=fake.phone_number(),
@@ -107,18 +130,20 @@ def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
 
 def create_user(config, user):
     url = "https://{}/data/v1/object/user".format(config.domain)
-    log("sending to {}", url)
+#    log("sending to {}", url)
     res = requests.post(url, headers={
                  'authorization': 'Bearer ' + config.accesskey
                }, json=user)
-    if res.status_code == 204:
-        log("Submitted status={}", res.status_code)
-    else:
+    if res.status_code != 204:
+        #log("Submitted status={}", res.status_code)
+#    else:
         log("Failed to submit => {}\n{}", res.status_code, res.content)
 
 def seed_user(args, config, template=dict()):
     user = user_factory(config, template=template)
-    log("user={}", json.dumps(user, indent=2))
+    with open("seeds.{}.{}".format(config.domain, config.lane), "a") as seeds:
+        seeds.write(json.dumps(user, indent=2))
+    log("USER {} {} rank={} type={}".format(user['client_user_id'], user['email'], user['rank']['id'], user['type']['id']))
     if args.commit:
         create_user(config, user)
     else:
@@ -137,7 +162,7 @@ def main():
     args = parser.parse_args()
 
     # get the config from reflex/databus
-    rcs = rfx.client.Session().cfg_load() 
+    rcs = rfx.client.Session().cfg_load()
     ingress_cfg = "databus-ingress-" + args.lane
     try:
         dcfg = rcs.get("config", ingress_cfg)
@@ -157,7 +182,7 @@ def main():
 #        source = dictlib.dig(dcfg, 'sensitive.config.mapping.clients')[args.tenant]
 #    except Exception as err:
 #        sys.exit("Unable to find client mapping for {} in {} (reflex)".format(args.tenant, ingress_cfg))
-        
+
     try:
         apikeys = dictlib.dig(dcfg, 'sensitive.config.auth.apikeys')[args.tenant]
     except Exception as err:
@@ -198,6 +223,6 @@ def main():
         seed_user(args, config, template=dict(type=dict(id=2)))
         for x in range(0, 4):
             seed_user(args, config, template=dict(type=dict(id=3)))
-    
+
 if __name__ == "__main__":
     main()

@@ -5,5 +5,4 @@ names
 uuid
 Faker
 nameparser
-#usaddress
 postal-address
