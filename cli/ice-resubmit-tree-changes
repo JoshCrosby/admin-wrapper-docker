@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+
+#
+# For resubmitting tree change records via the API.  Finest hackery.
+#
+
+import os
+import sys
+import argparse
+import requests
+import rfx
+import rfx.client
+import json
+import secrets
+import base64
+import uuid
+import time
+import dictlib
+import jwt
+import re
+
+################################################################################
+def rfx_get_abort(rcs, obj, name):
+    try:
+        print("( reflex engine get {} {} )".format(obj, name))
+        return rcs.get(obj, name)
+    except rfx.client.ClientError as err:
+        sys.exit("Problem querying reflex, are you setup properly?  Error:\n>>> {}".format(err))
+
+def cross_accesskey(config, auth_css):
+    cxs = jwt.encode(dict(
+      aud="ica1:css:{}".format(config.tenant),
+      sub="ica1:{}".format(auth_css['token']),
+      exp=time.time() + (10*60)
+    ), key=base64.b64decode(auth_css['secret'])).decode()
+    config['accesskey'] = cxs
+    return config
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("lane", help="dev, tst, etc")
+    parser.add_argument("tenant", help="short token for tenant, ala `bluesun`")
+    parser.add_argument("tree_type", help="sponsors or placements")
+    args = parser.parse_args()
+
+    # Pull in configs & stuff via reflex
+    rcs = rfx.client.Session(base=rfx.Base().cfg_load())
+    reflex_config = rfx_get_abort(rcs, "config", "reflex").get("config")
+    lanes = reflex_config["lanes"]
+    if not lanes.get(args.lane):
+        sys.exit("Invalid lane `{}`, must be one of: {}".format(args.lane, ", ".join(lanes.keys())))
+
+    lane_short = "{}{}".format(lanes[args.lane].get('short'), reflex_config['regions']['oregon']['nbr'])
+
+    leo_cfg = rfx_get_abort(rcs, "config", "leo-bus-{}".format(lane_short, args.tenant))
+    topaz_cfg = rfx_get_abort(rcs, "config", "topaz-{}-{}".format(lane_short, args.tenant))
+
+    # build up our own config context
+    config = dictlib.Obj(
+        tenant=args.tenant,
+        lane=args.lane,
+        lane_short=lane_short,
+        domain=dictlib.dig(topaz_cfg, 'sensitive.kubernetes.ingress-hostname'),
+        endpoint=dictlib.dig(leo_cfg, 'sensitive.topaz.api')
+    )
+
+    # generate and insert to our config a cross service accesskey
+    config = cross_accesskey(config, dictlib.dig(leo_cfg, 'sensitive.topaz.auth-css'))
+
+    # check all is good
+    #def http(func, args, **kwargs):
+    url = "https://{}/auth/v1/api/access".format(config.domain)
+    print("===> " + url)
+    res = requests.get(url, headers={
+            'authorization': 'Bearer ' + config.accesskey
+          })
+    if res.status_code != 200:
+        sys.exit("Access key failure against Topaz (status={})".format(res.status_code))
+
+    # read objects from stdin
+    url = "https://{}{}".format(config.domain, config.endpoint.tree.replace("${type}", args.tree_type))
+
+    print("===> Submitting to " + url)
+    print("===> Reading objects (json) from stdin, newline delimited:")
+    for line in sys.stdin:
+        line = re.sub(r',\s*$', '', line)
+        if line[0] != "{":
+            sys.exit("Line does not begin with '{':\n" + line)
+        data = json.loads(line)
+        res = requests.post(url, headers={
+                'authorization': 'Bearer ' + config.accesskey
+              }, json={"change": data})
+        if res.status_code != 200:
+            print("Submitted: {}".format(json.dumps(data)))
+            sys.exit("nope: {} {}".format(res.status_code, res.content))
+        print(res.json())
+
+#               }, json=user)
+
+#    if res.status_code != 204:
+#        #log("Submitted status={}", res.status_code)
+##    else:
+#        log("Failed to submit => {}\n{}", res.status_code, res.content)
+
+################################################################################
+if __name__ == '__main__':
+    main()
