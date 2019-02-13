@@ -109,7 +109,6 @@ def user_factory(cfg, sequencer=sequencer, template=dict(), faker=True):
 #    "T-" + str(uuid.uuid4()).replace("-","")
     rank = fake.word(ext_word_list=RANKS)
     user = dict(
-        icentris_client=cfg.tenant,
         client_user_id=my_id,
         first_name=fake.first_name(),
         last_name="TEST " + fake.last_name(),
